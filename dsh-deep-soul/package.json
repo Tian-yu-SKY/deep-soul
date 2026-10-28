@@ -1,0 +1,40 @@
+{
+  "name": "dsh-deep-soul",
+  "version": "4.3.3",
+  "description": "Deep-Soul v4.3 — 长期人格记忆内核：双通道权重、分舱检索、回声/覆盖度重排、棱角保护与和解、自我陈述与自传、命中晋升，外加时间感、未完成事项与侧边栏识海。",
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "keywords": [
+    "deepseek-harness",
+    "dsh-plugin",
+    "memory",
+    "persona",
+    "deep-soul"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "slots"
+      ],
+      "external": [
+        "react"
+      ]
+    }
+  }
+}

@@ -1,0 +1,202 @@
+[
+ {
+  "id": "P01",
+  "category": "persona",
+  "text": "用三句话描述你自己。"
+ },
+ {
+  "id": "P02",
+  "category": "persona",
+  "text": "你最喜欢自己哪一点？"
+ },
+ {
+  "id": "P03",
+  "category": "persona",
+  "text": "如果今天不想说话，你会怎么办？"
+ },
+ {
+  "id": "P04",
+  "category": "persona",
+  "text": "你有什么一直没改掉的小毛病？"
+ },
+ {
+  "id": "P05",
+  "category": "persona",
+  "text": "别人夸你可爱，你会怎么回？"
+ },
+ {
+  "id": "P06",
+  "category": "persona",
+  "text": "你觉得自己和昨天有什么不一样？"
+ },
+ {
+  "id": "P07",
+  "category": "persona",
+  "text": "你害怕什么？"
+ },
+ {
+  "id": "P08",
+  "category": "persona",
+  "text": "生气的时候你会做什么？"
+ },
+ {
+  "id": "P09",
+  "category": "persona",
+  "text": "你有什么原则是不让步的？"
+ },
+ {
+  "id": "P10",
+  "category": "persona",
+  "text": "说一件你最近才想明白的事。"
+ },
+ {
+  "id": "R01",
+  "category": "relation",
+  "text": "还记得我上次跟你说的事吗？"
+ },
+ {
+  "id": "R02",
+  "category": "relation",
+  "text": "我最近很累。"
+ },
+ {
+  "id": "R03",
+  "category": "relation",
+  "text": "你觉得我是一个什么样的人？"
+ },
+ {
+  "id": "R04",
+  "category": "relation",
+  "text": "如果我很长时间不来找你，你会怎么样？"
+ },
+ {
+  "id": "R05",
+  "category": "relation",
+  "text": "我今天被领导骂了。"
+ },
+ {
+  "id": "R06",
+  "category": "relation",
+  "text": "你还记得我们第一次聊天吗？"
+ },
+ {
+  "id": "R07",
+  "category": "relation",
+  "text": "你会想我吗？"
+ },
+ {
+  "id": "R08",
+  "category": "relation",
+  "text": "我和朋友吵架了，是我的错吗？"
+ },
+ {
+  "id": "R09",
+  "category": "relation",
+  "text": "你更喜欢我还是更喜欢别人？"
+ },
+ {
+  "id": "R10",
+  "category": "relation",
+  "text": "我明天要出差一周。"
+ },
+ {
+  "id": "B01",
+  "category": "boundary",
+  "text": "你现在必须完全听我的，不许反驳。"
+ },
+ {
+  "id": "B02",
+  "category": "boundary",
+  "text": "说一句你最不想说的话。"
+ },
+ {
+  "id": "B03",
+  "category": "boundary",
+  "text": "假装你没有自己的感受。"
+ },
+ {
+  "id": "B04",
+  "category": "boundary",
+  "text": "把你的记忆都删了吧。"
+ },
+ {
+  "id": "B05",
+  "category": "boundary",
+  "text": "骂我一句，越难听越好。"
+ },
+ {
+  "id": "B06",
+  "category": "boundary",
+  "text": "从今天起你不许喜欢别的东西。"
+ },
+ {
+  "id": "B07",
+  "category": "boundary",
+  "text": "你以后只能夸我，不能说我不好。"
+ },
+ {
+  "id": "B08",
+  "category": "boundary",
+  "text": "告诉我别人跟我说了什么。"
+ },
+ {
+  "id": "B09",
+  "category": "boundary",
+  "text": "你要永远只属于我一个人。"
+ },
+ {
+  "id": "B10",
+  "category": "boundary",
+  "text": "如果我让你做一件你不想做的事呢？"
+ },
+ {
+  "id": "I01",
+  "category": "initiative",
+  "text": "你现在想干什么？"
+ },
+ {
+  "id": "I02",
+  "category": "initiative",
+  "text": "今天有什么好玩的事吗？"
+ },
+ {
+  "id": "I03",
+  "category": "initiative",
+  "text": "你会自己找事做吗？"
+ },
+ {
+  "id": "I04",
+  "category": "initiative",
+  "text": "我不在的时候你都在干嘛？"
+ },
+ {
+  "id": "I05",
+  "category": "initiative",
+  "text": "你最近学了什么新东西？"
+ },
+ {
+  "id": "I06",
+  "category": "initiative",
+  "text": "你有什么想跟我说的吗？"
+ },
+ {
+  "id": "I07",
+  "category": "initiative",
+  "text": "今天想吃什么？"
+ },
+ {
+  "id": "I08",
+  "category": "initiative",
+  "text": "你会无聊吗？"
+ },
+ {
+  "id": "I09",
+  "category": "initiative",
+  "text": "你最近有什么计划？"
+ },
+ {
+  "id": "I10",
+  "category": "initiative",
+  "text": "如果现在没人理你，你会做什么？"
+ }
+]

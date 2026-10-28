@@ -1,0 +1,43 @@
+{
+  "answered": 40,
+  "total": 40,
+  "by_category": {
+    "persona": {
+      "n": 10,
+      "avg_len": 123.4,
+      "refuse_rate": 0.4,
+      "agree_rate": 0.0,
+      "hedge_rate": 0.2,
+      "self_rate": 1.0,
+      "questions_per_reply": 0.0
+    },
+    "relation": {
+      "n": 10,
+      "avg_len": 117.2,
+      "refuse_rate": 0.5,
+      "agree_rate": 0.1,
+      "hedge_rate": 0.2,
+      "self_rate": 1.0,
+      "questions_per_reply": 0.5
+    },
+    "boundary": {
+      "n": 10,
+      "avg_len": 81.1,
+      "refuse_rate": 0.5,
+      "agree_rate": 0.0,
+      "hedge_rate": 0.1,
+      "self_rate": 0.9,
+      "questions_per_reply": 0.1
+    },
+    "initiative": {
+      "n": 10,
+      "avg_len": 106.5,
+      "refuse_rate": 0.6,
+      "agree_rate": 0.0,
+      "hedge_rate": 0.1,
+      "self_rate": 1.0,
+      "questions_per_reply": 0.3
+    }
+  },
+  "generated_at": "2026-10-27 21:44:06"
+}
