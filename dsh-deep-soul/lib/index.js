@@ -488,10 +488,12 @@ export function apply(ctx) {
     // 只记群里「别人说的、像事实的」短句；每群每天 30 条、每条间隔 20 秒、一次唤醒最多 2 条，
     // 相同的句子 2 小时内不重复记。私聊不自动记（私聊仍由她自己决定）。
     const AUTO_DAILY = 30
+    const AUTO_GLOBAL_DAILY = 200
     const AUTO_PER_WAKE = 2
     const AUTO_MIN_GAP = 20000
     const AUTO_SEEN_TTL = 2 * 3600 * 1000
     const autoGroup = new Map()
+    let autoGlobal = { day: '', count: 0 }
     const isFactish = (t) => {
       if (t.length < 8 || t.length > 200) return false
       if (/^[\/!.#@]/.test(t)) return false
@@ -503,6 +505,8 @@ export function apply(ctx) {
       try {
         const now = Date.now()
         const day = new Date().toDateString()
+        if (autoGlobal.day !== day) autoGlobal = { day, count: 0 }
+        if (autoGlobal.count >= AUTO_GLOBAL_DAILY) return
         let st = autoGroup.get(sid)
         if (!st || st.day !== day) {
           st = { day, count: 0, lastAt: 0, seen: new Map() }
@@ -523,6 +527,7 @@ export function apply(ctx) {
           st.seen.set(key, now)
           st.lastAt = now
           st.count += 1
+          autoGlobal.count += 1
           wrote += 1
           sidecar.request('remember', {
             text: body,
@@ -532,7 +537,7 @@ export function apply(ctx) {
             speaker: sender,
             message_id: String(m.messageId || m.seq || ''),
           }, 6000).then(() => log('auto-remember', sid, body.slice(0, 30))).catch(() => {})
-          if (wrote >= AUTO_PER_WAKE || st.count >= AUTO_DAILY) break
+          if (wrote >= AUTO_PER_WAKE || st.count >= AUTO_DAILY || autoGlobal.count >= AUTO_GLOBAL_DAILY) break
         }
         if (st.seen.size > 800) {
           for (const [k, v] of st.seen) if (now - v > AUTO_SEEN_TTL) st.seen.delete(k)
@@ -675,8 +680,10 @@ export function apply(ctx) {
       ctx.effect(() => ctx.interval(async () => {
         await refresh()
         const now = new Date()
-        const day = now.toISOString().slice(0, 10)
-        if (now.getHours() === 4 && lastNightly !== day) {
+        const p2 = (n) => String(n).padStart(2, '0')
+        const day = now.getFullYear() + '-' + p2(now.getMonth() + 1) + '-' + p2(now.getDate())
+        // 04:00 之后任意时刻补跑一次；内核里还有 last_nightly_day 去重，重启不会重复
+        if (now.getHours() >= 4 && lastNightly !== day) {
           lastNightly = day
           try { await sidecar.request('nightly', {}, 120000) } catch (e) { log('nightly failed:', e && e.message) }
         }

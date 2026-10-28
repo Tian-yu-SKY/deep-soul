@@ -1,5 +1,11 @@
 # Deep-Soul · 识海
 
+![version](https://img.shields.io/badge/version-4.3.4-2E68B4)
+![license](https://img.shields.io/badge/license-MIT-268C68)
+![python](https://img.shields.io/badge/python-3.10%2B-3B6EC8)
+![node](https://img.shields.io/badge/node-22%2B-6C4FAD)
+![dsh](https://img.shields.io/badge/DSH-plugin-1F2D3F)
+
 **给 DSH 里的人格一份能长期共处的记忆。**
 
 Deep-Soul 是运行在 DeepSeek Harness 上的长期记忆插件。它不改变模型，也不接管对话，而是解决三件事：什么值得记、什么时候能想起、想起后该不该说。
@@ -37,6 +43,17 @@ Deep-Soul 是运行在 DeepSeek Harness 上的长期记忆插件。它不改变�
 ## 界面
 
 侧边栏「识海」：中心自我核，四周分舱，节点大小对应 α、亮度对应衰减、红色尖刺是未和解的刺。支持悬停、点击看证据、时间旅行（+30/+90/+200 天）。动画完全在浏览器 Canvas 内，不新增请求、不消耗 token。
+
+## 长期运行与维护（v4.3.4）
+
+长期跑最怕的不是记忆变多，而是没人收尾。v4.3.4 补了四项维护：
+
+- **事件保留**：recall/touch 事件保留 90 天、最多 2 万条，夜间清理；记忆正文不受影响。
+- **快照限容**：快照保留 30 份，同时限制总体积不超过 512 MB，超出按最旧删除（至少留 7 份）。
+- **WAL 截断**：夜间巩固结束后执行 wal_checkpoint(TRUNCATE)，避免 WAL 长期大于主库。
+- **夜间补跑**：04:00 之后任意时刻补跑一次；内核用 last_nightly_day 去重，重启不会重复巩固。
+
+另有一项写入侧限制：群聊自动记忆除每群每天 30 条外，进程内全局每天最多 200 条，群多时不会线性膨胀。
 
 ## 安装
 

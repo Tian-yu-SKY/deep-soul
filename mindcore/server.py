@@ -48,7 +48,7 @@ class Service:
                 return
             import os
             root = os.path.join(os.environ.get("DSH_HOME") or os.path.join(os.path.expanduser("~"), ".dsh"),
-                                "sessions")
+                                "sessions", "--home-qqbot-qq-bridge-state-agents--")
             if not os.path.isdir(root):
                 return
             from .importer import import_all
@@ -89,7 +89,7 @@ class Service:
                 "ORDER BY COALESCE(last_hit, created_at) DESC LIMIT ?", (int(a.get("limit", 3)),)).fetchall()
             return [{"text": r["text"], "region": r["region"], "created_at": r["created_at"]} for r in rows]
         if op == "nightly":
-            rep = self.cons.nightly()
+            rep = self.cons.nightly(force=bool(a.get("force")))
             # [v4.3.3] 自性层接进夜里：争议项凑够证据就升级，长期没复核的缓慢变软
             try:
                 rep["claims_promoted"] = self.selfmodel.council()

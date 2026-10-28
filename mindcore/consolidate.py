@@ -1,4 +1,5 @@
 """巩固层：五算子闸门、和解、情绪回归、证据保留（§3.4, §3.6, §3.9）。"""
+import os
 import time
 
 from . import text as T
@@ -173,7 +174,10 @@ class Consolidator:
         return {"node_id": node_id, "state": "resolved"}
 
     # ---------- 每夜 ----------
-    def nightly(self):
+    def nightly(self, force=False):
+        day = time.strftime("%Y-%m-%d")
+        if not force and self.store.get_meta("last_nightly_day") == day:
+            return {"skipped": True, "day": day}
         snap = self.store.snapshot("pre-consolidate", keep=30)
         report = {}
         report["merged"] = self.merge()
@@ -185,7 +189,45 @@ class Consolidator:
         if self.index:
             report["cells"] = self.index.rebuild_cells()
         report["self_snapshot"] = self.snapshot_self()
+        report["maintenance"] = self.maintenance()
+        self.store.set_meta("last_nightly_day", day)
         return report
+
+    # ---------- [v4.3.4] 长期运行维护 ----------
+    def maintenance(self, event_days=90, event_keep=20000, snapshot_max_bytes=512 * 1024 * 1024):
+        """事件保留、快照体积上限、WAL 截断。只删事件与旧快照，不动记忆正文。"""
+        out = {}
+        now = time.time()
+        cutoff = now - event_days * 86400
+        with self.store.tx() as c:
+            cur = c.execute("DELETE FROM events WHERE ts < ? AND id NOT IN "
+                            "(SELECT id FROM events ORDER BY ts DESC LIMIT ?)", (cutoff, event_keep))
+            out["events_deleted"] = cur.rowcount if cur.rowcount is not None else 0
+        # 快照按总大小裁剪，至少保留 7 份
+        rows = self.store.conn.execute("SELECT ts, path FROM snapshots ORDER BY ts DESC").fetchall()
+        total = 0
+        kept = 0
+        for r in rows:
+            try:
+                size = os.path.getsize(r["path"])
+            except OSError:
+                size = 0
+            total += size
+            kept += 1
+            if kept > 7 and total > snapshot_max_bytes:
+                try:
+                    os.remove(r["path"])
+                except OSError:
+                    pass
+                self.store.conn.execute("DELETE FROM snapshots WHERE ts=?", (r["ts"],))
+                total -= size
+        out["snapshots_kept"] = kept
+        out["snapshots_bytes"] = total
+        try:
+            self.store.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except Exception:
+            pass
+        return out
 
     def snapshot_self(self):
         rows = self.store.conn.execute("SELECT claim FROM self_claims WHERE status='active'").fetchall()

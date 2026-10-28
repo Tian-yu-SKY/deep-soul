@@ -64,7 +64,7 @@ def main(argv=None):
     p.add_argument("--day", default=None)
     sub.add_parser("cells")
     p = sub.add_parser("import-qq")
-    p.add_argument("--dir", default=None)
+    p.add_argument("--dir", default="/home/qqbot/.dsh/sessions/--home-qqbot-qq-bridge-state-agents--")
     p.add_argument("--cap", type=int, default=3000)
     p.add_argument("--dry-run", action="store_true")
     p = sub.add_parser("brain")
@@ -107,8 +107,7 @@ def main(argv=None):
         print(json.dumps(P["index"].rebuild_cells(), ensure_ascii=False)); return 0
     if args.cmd == "import-qq":
         from .importer import import_all
-        root = args.dir or os.path.join(os.environ.get("DSH_HOME") or os.path.expanduser("~/.dsh"), "sessions")
-        r = import_all(P, root, cap=args.cap, dry_run=args.dry_run)
+        r = import_all(P, args.dir, cap=args.cap, dry_run=args.dry_run)
         print(json.dumps(r, ensure_ascii=False)); return 0
     if args.cmd == "brain":
         from . import panel

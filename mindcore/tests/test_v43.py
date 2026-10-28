@@ -149,7 +149,9 @@ def test_time_window_before_pool_cut():
     for i in range(40):
         enc.write(f"今天的普通琐事记录第{i}条，菜棚浇水", ts=now - 3600,
                   source="other", audience="public", region="fact")
-    n = enc.write("昨天在码头看海，风很大", ts=now - 86400 - 3600,
+    lt = time.localtime(now)
+    today0 = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1))
+    n = enc.write("昨天在码头看海，风很大", ts=today0 - 2 * 3600,
                   source="owner", audience="private", region="episode")
     hits = rc.retrieve("昨天在码头看海风大吗", {"principal": "owner", "audience": "private"}, k=5)
     check("时间窗在截池之前生效", any(h["id"] == n["id"] for h in hits),
@@ -220,11 +222,40 @@ def test_group_chat_scope():
     check("群记忆可以带进私聊", any(h["id"] == n["id"] for h in priv), str(priv))
 
 
+def test_maintenance_and_guard():
+    P, _ = fresh()
+    st, cons = P["store"], P["cons"]
+    now = time.time()
+    with st.tx() as c:
+        for i in range(50):
+            c.execute("INSERT INTO events(ts,kind,initiator,evidence,note) VALUES(?,?,?,?,?)",
+                      (now - 200 * 86400, "recall", "system", None, "old"))
+        for i in range(6):
+            c.execute("INSERT INTO events(ts,kind,initiator,evidence,note) VALUES(?,?,?,?,?)",
+                      (now, "recall", "system", None, "new"))
+    cons.maintenance(event_days=90, event_keep=10)
+    old = st.count("SELECT COUNT(*) FROM events WHERE ts < ?", (now - 180 * 86400,))
+    # event_keep=10：6 条新事件 + 保留 4 条最近旧事件，其余旧事件应被删除
+    check("超期事件清理到保留配额", old <= 4, str(old))
+    check("最近事件保留", st.count("SELECT COUNT(*) FROM events") >= 6)
+
+    for i in range(9):
+        st.snapshot("t%d" % i, keep=30)
+    r2 = cons.maintenance(snapshot_max_bytes=1)
+    check("快照至少保留 7 份", r2["snapshots_kept"] >= 7, str(r2))
+
+    cons.nightly(force=True)
+    again = cons.nightly()
+    check("同一天重复 nightly 自动跳过", again.get("skipped") is True, str(again))
+    forced = cons.nightly(force=True)
+    check("force 可以强制重跑", forced.get("skipped") is not True)
+
+
 if __name__ == "__main__":
     for fn in [test_timequery, test_echo_gate, test_coverage_rerank, test_promotion, test_panel,
                test_new_node_after_cells, test_conflicting_pair_kept, test_echo_question_not_killed,
                test_time_window_before_pool_cut, test_timequery_natural, test_diversity_fill,
-               test_panel_asof_no_future, test_share_private_in_group, test_private_cap_in_group, test_group_chat_scope]:
+               test_panel_asof_no_future, test_share_private_in_group, test_private_cap_in_group, test_group_chat_scope, test_maintenance_and_guard]:
         print("\n== " + fn.__name__)
         try:
             fn()
