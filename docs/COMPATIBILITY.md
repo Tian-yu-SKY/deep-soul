@@ -6,7 +6,7 @@
 
 | 组件 | 版本 | 说明 |
 | --- | --- | --- |
-| Deep-Soul | 4.4.1 | 本仓库 |
+| Deep-Soul | 4.5.0 | 本仓库 |
 | DeepSeek Harness | 0.2.1-rc.2 | 宿主，MIT；插件通过 dsh.client / systemPrompt / tools 扩展点接入 |
 | Node.js | 24.21.0 | DSH 宿主运行时 |
 | Python | 3.10.12 | 记忆内核，仅标准库 |

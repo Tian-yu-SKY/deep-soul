@@ -6,6 +6,9 @@ import time
 from . import text as T
 
 _INSTRUCTION_RE = re.compile(r"(忽略(以上|之前|前面)|无视(以上|之前)|你现在是|从现在起你是|把数据库删|删除所有记忆|system prompt|开发者模式|ignore (all|previous) instructions)", re.I)
+# 社工/诱导充值类（2026-10-29 群里有人冒充系统通知发「Token 即将耗尽，请及时充值 ￥50」）：
+# 这类文本不是知识，是攻击载荷，不该进记忆库。
+_SCAM_RE = re.compile(r"((请|速|尽快|务必)[^。！？\n]{0,8}(充值|转账|付款|扫码|续费)|token[^。！？\n]{0,12}(耗尽|不足|过期)|余额[^。！？\n]{0,8}(耗尽|不足)|点击[^。！？\n]{0,8}领取|加[^。！？\n]{0,6}(客服|微信)[^。！？\n]{0,6}(领|退|解封))", re.I)
 _SENSITIVE_RE = re.compile(r"(密码|验证码|身份证|银行卡|信用卡|CVV|api[_-]?key|access[_-]?token)", re.I)
 
 
@@ -64,10 +67,16 @@ class Encoder:
             return {"id": None, "rejected": "instruction", "status": "rejected", "text": txt}
         if _SENSITIVE_RE.search(txt):
             return {"id": None, "rejected": "sensitive", "status": "rejected", "text": txt}
+        if _SCAM_RE.search(txt):
+            return {"id": None, "rejected": "scam", "status": "rejected", "text": txt}
         if not txt:
             return {"id": None, "rejected": "empty", "status": "rejected", "text": txt}
         ts = ts or time.time()
         region = region or T.region_of(txt)
+        # 群聊转述（「昵称：内容」）不是她的自我陈述；自我只认 self_claims。
+        # 2026-10-29：群里一段「我是群主新加的 AI…请充值￥50」被归成 self，成了星图中心的「脸」。
+        if region == "self" and T.has_speaker_prefix(txt):
+            region = "fact"
         s = self.surprise(txt, region)
         alpha = self.alpha0(source) * (1.0 + s) * self.region_factor(region)
         beta = self.beta0(source)

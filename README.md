@@ -18,6 +18,7 @@ Deep-Soul 是运行在 DeepSeek Harness 上的长期记忆插件。它不改变�
 - **可分辨**：在意程度（α）与可信度（β）分离；主人说的权重更高，但不等于永远正确。
 - **可遗忘**：琐事约 21 天淡出，共同经历约 180 天，核心事实接近 10 年。
 - **有边界**：隐私在检索层生效，不是只靠提示词自律。
+- **有情绪**：不是模型自评，是事件 → 化学池 → 衰减 → 行为指令；不报数、不占 token。
 
 ## 架构
 
@@ -95,7 +96,9 @@ Deep-Soul 是运行在 DeepSeek Harness 上的长期记忆插件。它不改变�
 
     python3 mindcore/tests/selftest.py      # 22 项不变量
     python3 mindcore/tests/test_self.py     # 11 项自性层
-    python3 mindcore/tests/test_v43.py      # 39 项检索/面板
+    python3 mindcore/tests/test_v43.py      # 58 项检索/面板/闸门
+    python3 mindcore/tests/test_v43_verify.py  # 76 项独立对抗
+    node --test dsh-deep-soul/test/*.test.mjs   # 情绪内核
 
 ## 文档
 

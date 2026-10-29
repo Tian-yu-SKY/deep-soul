@@ -73,6 +73,15 @@ def topic_dice(a: str, b: str) -> float:
     return dice(topic_of(a), topic_of(b))
 
 
+# 群聊转述标记：一条记录以「昵称：内容」开头（中文/英文冒号都算）。
+# 用来区分「她自己说的话」和「别人说的、被记下来的话」——后者不能进 self 区。
+_SPEAKER_PREFIX = re.compile(r"^\s*[^\s：:]{1,24}[：:]")
+
+
+def has_speaker_prefix(text: str) -> bool:
+    return bool(_SPEAKER_PREFIX.match(text or ""))
+
+
 def region_of(text: str) -> str:
     t = normalize(text)
     for region, cues in _REGION_RULES:

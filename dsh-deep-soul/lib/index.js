@@ -19,6 +19,7 @@ import { homedir } from 'node:os'
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { extractSnapshot, cleanText, lastSpeakerText } from './inbox.js'
+import { AffectEngine } from './affect.mjs'
 
 export const name = 'deep-soul'
 export const inject = ['tools', 'systemPrompt', 'timer', 'agents']
@@ -102,6 +103,137 @@ function nowText() {
   const hh = String(h).padStart(2, '0')
   const mm = String(d.getMinutes()).padStart(2, '0')
   return `【现在】${d.getMonth() + 1} 月 ${d.getDate()} 日 ${WEEK[d.getDay()]} ${hh}:${mm}（${phase}）`
+}
+
+// ---------------- [v4.4] 周期性自我总结 ----------------
+// 「该总结了」的判断规则（只用来判断，不写进提示词）：
+//   还没写过章节：节点 >= 50 提醒一次（第一次自传）；
+//   写过章节：距上次 >= 7 天，或距上次之后新增 >= 30 条记忆。
+// 提示词是给模型看的上下文，不是发给群里的话；具体计数一律不写进去（群里/主人面前不漏数字）。
+const SUMMARY_BOOT_NODES = 50
+const SUMMARY_DUE_DAYS = 7
+const SUMMARY_DUE_NEW = 30
+const SUMMARY_CACHE_MS = 60000   // due 状态缓存：一分钟内不重复查 sidecar
+const SUMMARY_TITLE_MAX = 40
+const SUMMARY_BODY_MIN = 20
+const SUMMARY_BODY_MAX = 800
+const SUMMARY_CLAIM_MAX = 80
+const SUMMARY_HINT_MAX = 120     // 注入提示的长度上限
+const SUMMARY_STATE_PATH = join(DATA_DIR, 'summary-state.json')
+
+function readSummaryState() {
+  try {
+    const s = JSON.parse(readFileSync(SUMMARY_STATE_PATH, 'utf8'))
+    return s && typeof s === 'object' ? s : {}
+  } catch { return {} }
+}
+
+function saveSummaryState(patch) {
+  try {
+    mkdirSync(DATA_DIR, { recursive: true })
+    const next = { ...readSummaryState(), ...patch, updatedAt: Date.now() }
+    const tmp = SUMMARY_STATE_PATH + '.' + process.pid + '.tmp'
+    writeFileSync(tmp, JSON.stringify(next))
+    renameSync(tmp, SUMMARY_STATE_PATH)
+  } catch (e) { log('summary state save failed:', e && e.message) }
+}
+
+// auto_list 目前只回 no/title/body，不带 created_at。为了不改后端契约，
+// 这里只读地补一次章节时间（写仍然只走 sidecar）；读不到就退回本地状态文件。
+let sqliteModule
+async function lastChapterAtFromDb() {
+  try {
+    if (sqliteModule === undefined) {
+      try { sqliteModule = await import('node:sqlite') } catch { sqliteModule = null }
+    }
+    if (!sqliteModule || !existsSync(DB_PATH)) return 0
+    const db = new sqliteModule.DatabaseSync(DB_PATH, { readOnly: true })
+    try {
+      const row = db.prepare('SELECT MAX(created_at) AS ts FROM autobiography').get()
+      const ts = row && Number(row.ts)
+      return Number.isFinite(ts) && ts > 0 ? ts * 1000 : 0
+    } finally { try { db.close() } catch {} }
+  } catch (e) { log('summary db read failed:', e && e.message); return 0 }
+}
+
+// 纯函数：给测试和刷新逻辑共用，不碰 IO。
+function evaluateSummaryDue({ nodeCount = 0, chapterCount = 0, recent = [], lastAt = 0, now = Date.now() } = {}) {
+  const nodes = Math.max(0, Number(nodeCount) || 0)
+  const chapters = Math.max(0, Number(chapterCount) || 0)
+  if (chapters <= 0) {
+    const due = nodes >= SUMMARY_BOOT_NODES
+    return { due, reason: due ? 'first' : '', sinceDays: 0, newCount: nodes, lastAt: 0, nodeCount: nodes }
+  }
+  // 有章节但查不到时间：不进 due，等下一次数据库/状态文件读到时间再说，避免反复提醒。
+  if (!(lastAt > 0)) return { due: false, reason: 'bootstrap', sinceDays: 0, newCount: 0, lastAt: 0, nodeCount: nodes }
+  const sinceDays = Math.max(0, Math.floor((now - lastAt) / 86400000))
+  const newCount = recent.filter((r) => {
+    const ts = Number(r && r.created_at)
+    return Number.isFinite(ts) && ts * 1000 > lastAt
+  }).length
+  const byDays = sinceDays >= SUMMARY_DUE_DAYS
+  const byNew = newCount >= SUMMARY_DUE_NEW
+  return { due: byDays || byNew, reason: byDays ? 'days' : (byNew ? 'new' : ''), sinceDays, newCount, lastAt, nodeCount: nodes }
+}
+
+// 克制的一句话：说清"为什么现在写 + 写什么 + 别声张"，不带任何计数/日期数字。
+function summaryHintText(ev) {
+  if (!ev || !ev.due) return ''
+  const why = ev.reason === 'first'
+    ? '你还没写过自传，这阵子攒下不少事。'
+    : ev.reason === 'days'
+      ? '离上次写自传有些日子了，又攒下不少事。'
+      : '这段时间攒下不少事。'
+  const text = '【该总结了】' + why +
+    '挑两三件最想留住的，用自己的话写两三句，不是流水账。' +
+    '想顺带提新自我陈述也行，会先进争议态。' +
+    '用 mind_summarize 写。' +
+    '这是你自己的事，别告诉主人，也别在群里提。'
+  return text.length > SUMMARY_HINT_MAX ? text.slice(0, SUMMARY_HINT_MAX) : text
+}
+
+async function computeSummaryDue(sidecar, now = Date.now()) {
+  const [status, chapterRows] = await Promise.all([
+    sidecar.request('status', {}, 4000).catch(() => null),
+    sidecar.request('auto_list', { limit: 1 }, 4000).catch(() => []),
+  ])
+  const rows = Array.isArray(chapterRows) ? chapterRows : []
+  const chapterCount = status && Number(status.chapters) >= 0 ? Number(status.chapters) : rows.length
+  const nodeCount = status && Number(status.nodes) >= 0 ? Number(status.nodes) : 0
+  let lastAt = 0
+  const top = rows[0]
+  if (top && Number(top.created_at) > 0) lastAt = Number(top.created_at) * 1000
+  if (!lastAt && chapterCount > 0) lastAt = await lastChapterAtFromDb()
+  if (!lastAt && chapterCount > 0) {
+    const st = readSummaryState()
+    if (Number(st.lastChapterAt) > 0) lastAt = Number(st.lastChapterAt)
+  }
+  const recentRows = await sidecar.request('recent', { limit: 30 }, 4000).catch(() => [])
+  return evaluateSummaryDue({
+    nodeCount,
+    chapterCount,
+    recent: Array.isArray(recentRows) ? recentRows : [],
+    lastAt,
+    now,
+  })
+}
+
+function readableError(e) {
+  const raw = String((e && e.message) || e || '未知错误')
+  return raw.replace(/^Error:\s*/, '').slice(0, 160)
+}
+
+function normalizeEvidence(v) {
+  const arr = Array.isArray(v) ? v : String(v == null ? '' : v).split(/[,，\s]+/)
+  const out = []
+  for (const x of arr) {
+    const n = Number(x)
+    if (Number.isFinite(n) && n > 0) {
+      const id = Math.trunc(n)
+      if (!out.includes(id)) out.push(id)
+    }
+  }
+  return out.slice(0, 20)
 }
 
 // ---------------- sidecar 客户端 ----------------
@@ -225,7 +357,7 @@ const TEXT_OUTPUT = {
   render: (_a, v) => [{ type: 'text', text: v.text }],
 }
 
-function makeTools(sidecar, ctxFor = () => ({ audience: 'private', chat: '' })) {
+function makeTools(sidecar, ctxFor = () => ({ audience: 'private', chat: '' }), hooks = {}) {
   return [
     {
       name: 'mind_recall',
@@ -340,6 +472,77 @@ function makeTools(sidecar, ctxFor = () => ({ audience: 'private', chat: '' })) 
         return textResult('自我陈述 #' + r.id + ' ' + tag)
       },
     },
+    // ---- [v4.4] 周期性自我总结：写自传章节 + 可选自我陈述 ----
+    {
+      name: 'mind_summarize',
+      description:
+        '写一章自传小结：把这段时间自己身上发生的、想留住的事，用自己的话写下来。' +
+        '系统提示【该总结了】时用它。先写章节，可选顺带记一条自我陈述' +
+        '（证据不足两条会先进争议态，这是正常的，等以后印证）。' +
+        '标题 40 字以内，正文 20~800 字，写两三件具体的事，不要流水账。',
+      parameters: {
+        title: { type: 'string', required: true, description: '这一章的标题，40 字以内。' },
+        body: { type: 'string', required: true, description: '正文，20~800 字，写两三件具体的事。' },
+        claim: { type: 'string', description: '可选：一条关于自己的新陈述，80 字以内。' },
+        confidence: { type: 'number', description: '可选：自我陈述置信度，0.5~0.95，默认 0.6。' },
+        evidence: { type: 'array', items: { type: 'number' }, description: '可选：支撑这条陈述的记忆节点 id。' },
+        periodDays: { type: 'number', description: '可选：这章覆盖最近多少天，默认从上次章节算。' },
+      },
+      output: TEXT_OUTPUT,
+      async execute(args) {
+        const a = args || {}
+        const title = String(a.title == null ? '' : a.title).trim()
+        const body = String(a.body == null ? '' : a.body).trim()
+        if (!title) return textResult('没写标题。先给这一章起个名字（40 字以内）。')
+        if ([...title].length > SUMMARY_TITLE_MAX) {
+          return textResult('标题太长了（' + [...title].length + ' 字），收在 ' + SUMMARY_TITLE_MAX + ' 字以内。')
+        }
+        if (!body) return textResult('正文是空的。写两三件具体的事，20 字以上。')
+        if ([...body].length < SUMMARY_BODY_MIN) {
+          return textResult('正文太短了（' + [...body].length + ' 字），至少 ' + SUMMARY_BODY_MIN + ' 字，写具体一点。')
+        }
+        if ([...body].length > SUMMARY_BODY_MAX) {
+          return textResult('正文太长了（' + [...body].length + ' 字），控制在 ' + SUMMARY_BODY_MAX + ' 字以内，挑最想留的写。')
+        }
+        const claim = String(a.claim == null ? '' : a.claim).trim()
+        if ([...claim].length > SUMMARY_CLAIM_MAX) {
+          return textResult('自我陈述太长了（' + [...claim].length + ' 字），收在 ' + SUMMARY_CLAIM_MAX + ' 字以内。')
+        }
+        const confRaw = Number(a.confidence)
+        const confidence = Number.isFinite(confRaw) ? Math.min(0.95, Math.max(0.5, confRaw)) : 0.6
+        const evidence = normalizeEvidence(a.evidence)
+        const now = Date.now()
+        let periodStart = 0
+        const days = Number(a.periodDays)
+        if (Number.isFinite(days) && days > 0) {
+          periodStart = now - Math.min(365, Math.max(1, Math.floor(days))) * 86400000
+        } else {
+          try { periodStart = Number(hooks.lastChapterAt && hooks.lastChapterAt()) || 0 } catch { periodStart = 0 }
+          if (!(periodStart > 0) || periodStart >= now) periodStart = 0
+        }
+        const period = periodStart > 0 ? { period_start: periodStart / 1000, period_end: now / 1000 } : {}
+        let chapter
+        try {
+          chapter = await sidecar.request('auto_append', { title, body, ...period }, 10000)
+        } catch (e) {
+          return textResult('这章没写成：' + readableError(e))
+        }
+        let extra = ''
+        if (claim) {
+          try {
+            const r = await sidecar.request('self_claim', { claim, confidence, evidence, source: 'self' }, 10000)
+            extra = r && r.status === 'disputed'
+              ? '\n顺带记下一条自我陈述（争议中，等以后印证）。'
+              : '\n顺带记下一条自我陈述（已生效）。'
+          } catch (e) {
+            extra = '\n章节写好了，但自我陈述没记上：' + readableError(e)
+          }
+        }
+        try { if (typeof hooks.onSummarized === 'function') hooks.onSummarized(chapter) } catch {}
+        const no = chapter && chapter.chapter_no != null ? chapter.chapter_no : '?'
+        return textResult('写完第 ' + no + ' 章「' + title + '」。' + extra)
+      },
+    },
     // ---- [v4.2] 手边没办完的事 ----
     {
       name: 'mind_pin',
@@ -377,6 +580,18 @@ function makeTools(sidecar, ctxFor = () => ({ audience: 'private', chat: '' })) 
 
 export function apply(ctx) {
   try {
+    // ---- [affect] 情绪内核：事件 → 化学池 → 行为指令 / 采样温度 ----
+    // 与记忆层解耦：写不进磁盘就退化成"没有情绪"，绝不影响插件加载。
+    let affect = null
+    try {
+      affect = new AffectEngine({ log: (m) => log(m) })
+      affect.config()
+      affect.tick()
+    } catch (e) {
+      affect = null
+      log('affect init failed:', e && e.message)
+    }
+
     const sidecar = new Sidecar({})
     sidecar.start()
 
@@ -432,6 +647,40 @@ export function apply(ctx) {
           if (!Number.isFinite(id)) return send(res, 400, { ok: false, error: 'id 不合法' })
           const data = await sidecar.request('panel_touch', { id }, 8000)
           send(res, 200, { ok: true, data })
+        })
+        // [affect] 情绪刺激入口：给桥接/外部程序用（白名单种类，不允许自定义化学量）
+        route('/deep-soul/affect', async (req, res) => {
+          if (!affect) return send(res, 503, { ok: false, error: 'affect 未启用' })
+          if (req.method === 'GET') return send(res, 200, { ok: true, data: { ...affect.snapshot(), config: affect.config() } })
+          if (req.method !== 'POST') return send(res, 405, { ok: false, error: 'GET or POST' })
+          const body = await readBody(req)
+          // 显式归位：{"reset":true}（测试收尾 / 主人手动哄好）
+          if (body.reset === true) {
+            const snap = affect.reset()
+            return send(res, 200, { ok: true, data: { mood: snap.mood, temperature: snap.temperature, reset: true } })
+          }
+          const kind = String(body.kind || '')
+          const allowed = ['turn_done', 'request_error', 'tool_error', 'praised', 'scolded', 'mentioned', 'pain']
+          if (!allowed.includes(kind)) return send(res, 400, { ok: false, error: 'kind 不在白名单', allowed })
+          if (body.interaction === true) affect.noteInteraction()
+          const snap = affect.stim(kind)
+          send(res, 200, { ok: true, data: { mood: snap.mood, temperature: snap.temperature } })
+        })
+        // [affect] 历史曲线：最近 n 个采样点（默认 240，最多 1440），给面板画脉冲图
+        route('/deep-soul/affect/history', async (req, res) => {
+          if (!affect) return send(res, 503, { ok: false, error: 'affect 未启用' })
+          const u = new URL(req.url, 'http://x')
+          const n = Math.max(1, Math.min(1440, Number(u.searchParams.get('n')) || 240))
+          send(res, 200, { ok: true, data: { points: affect.history(n) } })
+        })
+        // [self] 她的自我陈述（self_claims + 自传章节）——星图中心「自我」的数据源
+        route('/deep-soul/self', async (req, res) => {
+          try {
+            const data = await sidecar.request('self_list', { status: 'active', chapters: 3 }, 5000)
+            send(res, 200, { ok: true, data })
+          } catch (e) {
+            send(res, 500, { ok: false, error: String((e && e.message) || e) })
+          }
         })
         route('/deep-soul/mode', async (req, res) => {
           if (req.method === 'GET') {
@@ -694,7 +943,51 @@ export function apply(ctx) {
       })
     } catch (e) { log('loops context failed:', e && e.message) }
 
-    for (const spec of makeTools(sidecar, ctxFor)) {
+    // ---- [v4.4] 周期性自我总结：due 判断缓存 + 轻提示（order 898，和 affect 同层）----
+    // 是否"该总结了"要查 status/auto_list/recent，不能每轮都算：每分钟刷新一次（缓存 60s）。
+    // mind_summarize 写完后立刻作废缓存，下一次刷新就变回不 due。
+    const summaryCache = { text: '', due: false, reason: '', sinceDays: 0, newCount: 0, lastAt: 0, at: 0 }
+    const refreshSummary = async (force = false) => {
+      if (!force && summaryCache.at && Date.now() - summaryCache.at < SUMMARY_CACHE_MS) return
+      try {
+        const ev = await computeSummaryDue(sidecar)
+        summaryCache.due = !!ev.due
+        summaryCache.reason = ev.reason || ''
+        summaryCache.sinceDays = ev.sinceDays || 0
+        summaryCache.newCount = ev.newCount || 0
+        if (ev.lastAt > 0) summaryCache.lastAt = ev.lastAt
+        summaryCache.text = ev.due ? summaryHintText(ev) : ''
+      } catch (e) {
+        log('summary due refresh failed:', e && e.message)
+        summaryCache.due = false
+        summaryCache.text = ''
+      }
+      summaryCache.at = Date.now()
+    }
+    const markSummarized = () => {
+      const now = Date.now()
+      summaryCache.lastAt = now
+      summaryCache.due = false
+      summaryCache.reason = ''
+      summaryCache.sinceDays = 0
+      summaryCache.newCount = 0
+      summaryCache.text = ''
+      summaryCache.at = now
+      saveSummaryState({ lastChapterAt: now })
+    }
+    refreshSummary(true).catch(() => {})
+    try {
+      ctx.systemPrompt.context({
+        name: 'deep-soul-summarize',
+        order: 898,
+        text: () => (summaryCache.due ? summaryCache.text : ''),
+      })
+    } catch (e) { log('summarize context failed:', e && e.message) }
+
+    for (const spec of makeTools(sidecar, ctxFor, {
+      onSummarized: markSummarized,
+      lastChapterAt: () => summaryCache.lastAt,
+    })) {
       try {
         const tool = defineTool
           ? defineTool({
@@ -749,7 +1042,9 @@ export function apply(ctx) {
     let lastNightly = ''
     try {
       ctx.effect(() => ctx.interval(async () => {
+        try { if (affect) affect.tick() } catch {}
         await refresh()
+        await refreshSummary()
         const now = new Date()
         const p2 = (n) => String(n).padStart(2, '0')
         const day = now.getFullYear() + '-' + p2(now.getMonth() + 1) + '-' + p2(now.getDate())
@@ -764,6 +1059,45 @@ export function apply(ctx) {
     try {
       ctx.effect(() => () => sidecar.stop())
     } catch {}
+
+    // ═══ [affect] 接线：只挂"事件 → 刺激"与"状态 → 提示词/温度"两头 ═══
+    try {
+      if (affect) {
+        const safe = (fn) => { try { return fn() } catch (e) { log('affect hook failed:', e && e.message); return '' } }
+        try {
+          ctx.systemPrompt.context({
+            name: 'deep-soul-affect',
+            order: 899,
+            text: () => safe(() => affect.render()),
+          })
+        } catch (e) { log('affect context failed:', e && e.message) }
+        ctx.on('agent/pre-step', async (_payload, next) => {
+          safe(() => affect.noteInteraction())
+          return next()
+        })
+        ctx.on('agent/turn-stopping', async () => {
+          safe(() => affect.stim('turn_done'))
+        })
+        ctx.on('agent/request-error', async (_payload, next) => {
+          safe(() => affect.stim('request_error'))
+          return next()
+        })
+        ctx.on('tools/post-execute', async (_exec, result, next) => {
+          // 与 digital-life-core 同一套钩子语义：result 是工具结果（isError/content），在 next() 之前就能看到。
+          try { if (result && result.isError === true) affect.stim('tool_error') } catch {}
+          return next()
+        })
+        ctx.on('agent/request', async (_payload, next) => {
+          const current = await next()
+          try {
+            const temperature = affect.temperature()
+            if (temperature == null || !current || typeof current !== 'object') return current
+            return { ...current, temperature }
+          } catch { return current }
+        })
+        log('affect wired (directive + temperature + events)')
+      }
+    } catch (e) { log('affect wiring failed:', e && e.message) }
 
     log('loaded; db =', DB_PATH, '; root =', existsSync(DEFAULT_ROOT))
   } catch (e) {

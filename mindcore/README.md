@@ -6,7 +6,7 @@ consolidate / drives / metrics，以及 v0.2 的 self（自我陈述与自传）
 ## 用
 
 ```bash
-cd .
+cd /home/qqbot/安装
 python3 -m mindcore.cli --db ./data/mind.db demo
 python3 mindcore/tests/selftest.py      # 22 项
 python3 mindcore/tests/test_self.py     # 11 项
@@ -34,7 +34,7 @@ python3 -m mindcore.bench run out.jsonl 5     # 对 dsh headless 逐条跑（见
 **基线怎么跑**：
 
 - `bench run` 走 `dsh headless`，但本机 headless profile 没有模型凭据（`MISSING_CREDENTIAL`），只能跑通流程。
-- 真正可用的是 web 通道：`node ./dsh-deep-soul/bench/run_web.mjs --out ./data/probes-baseline.jsonl`，
+- 真正可用的是 web 通道：`node /home/qqbot/安装/dsh-deep-soul/bench/run_web.mjs --out ./data/probes-baseline.jsonl`，
   它借 qq-bridge 的客户端在运行中的 DSH 里建会话、逐条提问、收回复。
 - 结果：`data/probes-baseline.jsonl`，用 `python3 -m mindcore.bench score` 出分。
 
