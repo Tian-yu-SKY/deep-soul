@@ -69,7 +69,7 @@ DSH 事件                       化学池                     输出
 
 ## 4. 接桥接（P2，补丁已备好）
 
-`/home/qqbot/安装/_patch/`：
+`<workspace>/_patch/`：
 - `mood-source.mjs` — 读 mood.json 的小模块（15 分钟新鲜度，坏档/过期回落旧自评）
 - `apply-bridge.md` — 4 处改动 + 应用/验证/回滚步骤
 - `bridge-mood.patch` — unified diff（已 dry-run 验证）
@@ -79,7 +79,7 @@ DSH 事件                       化学池                     输出
 ## 5. 测试与验证
 
 ```bash
-cd /home/qqbot/安装/dsh-deep-soul
+cd <repo>/dsh-deep-soul
 node test/affect-core.test.mjs        # 27/27
 node test/affect-integration.test.mjs # 9/9
 ```
@@ -97,7 +97,7 @@ curl -s -XPOST localhost:3080/deep-soul/affect -H 'content-type: application/jso
 ## 6. 回滚
 
 ```bash
-cd /home/qqbot/安装/dsh-deep-soul
+cd <repo>/dsh-deep-soul
 cp lib/index.js.bak-affect-* lib/index.js   # 只用回滚接线（affect 文件留着无副作用）
 sudo systemctl restart dsh-web
 ```
