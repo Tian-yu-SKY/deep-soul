@@ -293,11 +293,33 @@ def test_write_guards():
     check("关闭 safeMode 后恢复写入", bool(r.get("id")), str(r))
 
 
+def test_cluster_label_is_majority():
+    P, _ = fresh()
+    from mindcore.panel import brain
+    enc, idx = P["encoder"], P["index"]
+    for i in range(5):
+        enc.write("今天在码头看海，风很大，第%d次" % i, source="other", audience="group", chat_id="g1")
+    enc.write("我是鲸歌，这是我的名字", source="owner", audience="group", chat_id="g1")
+    idx.rebuild_cells()
+    data = brain(P["store"], P["cfg"], idx)
+    bad = []
+    for c in data["clusters"]:
+        mix = c.get("mix") or {}
+        top = max(mix, key=lambda k: mix[k]) if mix else None
+        if top and c["region"] != top:
+            bad.append((c["id"], c["region"], top, mix))
+    check("舱标签取成员多数分区", not bad, str(bad[:3]))
+    from mindcore.panel import REGION_LABEL
+    check("标签与多数分区映射一致",
+          all(c["label"] == REGION_LABEL.get(c["region"], c["region"]) for c in data["clusters"]),
+          str([(c["id"], c["label"], c["region"]) for c in data["clusters"]]))
+
+
 if __name__ == "__main__":
     for fn in [test_timequery, test_echo_gate, test_coverage_rerank, test_promotion, test_panel,
                test_new_node_after_cells, test_conflicting_pair_kept, test_echo_question_not_killed,
                test_time_window_before_pool_cut, test_timequery_natural, test_diversity_fill,
-               test_panel_asof_no_future, test_share_private_in_group, test_private_cap_in_group, test_group_chat_scope, test_maintenance_and_guard, test_initiative_gate, test_write_guards]:
+               test_panel_asof_no_future, test_share_private_in_group, test_private_cap_in_group, test_group_chat_scope, test_maintenance_and_guard, test_initiative_gate, test_write_guards, test_cluster_label_is_majority]:
         print("\n== " + fn.__name__)
         try:
             fn()

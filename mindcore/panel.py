@@ -7,6 +7,7 @@
 """
 import datetime
 import json
+from collections import Counter
 import math
 import time
 
@@ -51,24 +52,32 @@ def _cluster_of(store, nodes):
     for r in store.conn.execute("SELECT cell_id, node_id FROM cell_members").fetchall():
         member[r["node_id"]] = r["cell_id"]
     clusters = {}
+    region_votes = {}
     for n in nodes:
         cid = member.get(n["id"])
         if cid and cid in cells:
             c = cells[cid]
-            region = c.get("region") or n["region"]
-            label = REGION_LABEL.get(region, region or "舱")
             key = cid
             audience = c.get("audience") or n["audience"]
         else:
             key = f"{n['audience']}:{n['region']}"
-            label = REGION_LABEL.get(n["region"], n["region"])
-            region, audience = n["region"], n["audience"]
+            audience = n["audience"]
         cl = clusters.get(key)
         if cl is None:
-            cl = clusters[key] = {"id": key, "label": label, "region": region,
+            cl = clusters[key] = {"id": key, "label": "", "region": "",
                                   "audience": audience, "size": 0}
+            region_votes[key] = Counter()
         cl["size"] += 1
         n["cluster"] = key
+        region_votes[key][n["region"]] += 1
+    # 舱是按语义聚出来的，不必然同分区。标签取成员里的多数分区，
+    # 而不是 cells.region（vector 模式建表时留空）或第一个节点。
+    for key, cl in clusters.items():
+        top = region_votes[key].most_common(1)
+        region = top[0][0] if top else "other"
+        cl["region"] = region
+        cl["label"] = REGION_LABEL.get(region, region or "舱")
+        cl["mix"] = dict(region_votes[key])
     return list(clusters.values())
 
 

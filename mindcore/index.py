@@ -61,10 +61,12 @@ class Index:
             return {"mode": "bucket", "cells": len(groups)}
 
         rows = self.store.conn.execute(
-            "SELECT id, audience, embedding FROM nodes WHERE status='active' AND embedding IS NOT NULL").fetchall()
+            "SELECT id, audience, region, embedding FROM nodes WHERE status='active' AND embedding IS NOT NULL").fetchall()
         by_aud = {}
+        region_of = {}
         for r in rows:
             by_aud.setdefault(r["audience"], []).append((r["id"], _unblob(r["embedding"])))
+            region_of[r["id"]] = r["region"]
         total, built = len(rows), 0
         with self.store.tx() as c:
             for aud, items in by_aud.items():
@@ -77,9 +79,11 @@ class Index:
                     cid = f"c{label}:{aud}"
                     centroid = mean_vec([v for (i2, v), l in zip(items, self._assign([v for _, v in items], cents)) if l == label])
                     summary = ids
+                    dominant = max(set(region_of[i] for i in ids),
+                                   key=lambda rg: sum(1 for i in ids if region_of[i] == rg))
                     c.execute("INSERT INTO cells(cell_id,audience,region,centroid,summary,size,updated_at)"
                               " VALUES(?,?,?,?,?,?,?)",
-                              (cid, aud, "", _blob(centroid) if centroid else None,
+                              (cid, aud, dominant, _blob(centroid) if centroid else None,
                                f"{len(ids)} 条", len(ids), time.time()))
                     c.executemany("INSERT INTO cell_members(cell_id,node_id) VALUES(?,?)",
                                   [(cid, i) for i in ids])
