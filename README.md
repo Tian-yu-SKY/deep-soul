@@ -108,6 +108,12 @@ Deep-Soul 是运行在 DeepSeek Harness 上的长期记忆插件。它不改变�
 - 自我陈述不会自动生成新内容，夜间只调整置信度与争议状态。
 - 夜间巩固依赖宿主在 04:10 后仍运行。
 
+## 兼容、验证与许可
+
+- [兼容性基线](docs/COMPATIBILITY.md)
+- [验证记录](docs/VALIDATION.md)
+- [来源与许可](NOTICE.md)
+
 ## 许可
 
 MIT。见 [LICENSE](LICENSE)。

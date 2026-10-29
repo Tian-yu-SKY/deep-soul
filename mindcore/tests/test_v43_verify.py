@@ -54,11 +54,13 @@ NOTES = []
 CTX = {"principal": "owner", "audience": "private"}
 
 # 固定「现在」= 2026-10-28 12:00:00（周三），让时间窗断言可复现
-NOW = time.mktime((2026, 10, 28, 12, 0, 0, 0, 0, -1))
+# 默认取运行时刻，避免套件跨日期后「昨天」夹具漂移；需要复现旧结果时设 DS_VERIFY_NOW
+NOW = float(os.environ.get("DS_VERIFY_NOW") or time.time())
 
 
 def day0(offset=0, hour=0, minute=0, second=0):
-    base = time.mktime((2026, 10, 28, 0, 0, 0, 0, 0, -1))
+    lt = time.localtime(NOW)
+    base = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1))
     return base + offset * 86400 + hour * 3600 + minute * 60 + second
 
 
@@ -113,7 +115,8 @@ def test_timequery():
           TQ.resolve_window("前天的事", NOW)["start"] == day0(-2) and
           TQ.resolve_window("前天的事", NOW)["end"] == day0(-1, 6))
     check("最近：覆盖最近 3 天", TQ.within(day0(-3), TQ.resolve_window("最近怎么样", NOW)))
-    this_monday = day0(0) - datetime.date(2026, 10, 28).weekday() * 86400
+    _lt = time.localtime(NOW)
+    this_monday = day0(0) - datetime.date(_lt.tm_year, _lt.tm_mon, _lt.tm_mday).weekday() * 86400
     check("这周：从本周一 00:00 起", TQ.resolve_window("这周聊了什么", NOW)["start"] == this_monday)
     check("空查询无时间窗", TQ.resolve_window("", NOW) is None)
 
@@ -273,7 +276,7 @@ def test_coverage():
         enc.write(t, source="owner", audience="private")
     check("域外长查询返回空（宁可没想起，符合既定设计）",
           rc.retrieve("量子力学编译原理", CTX) == [])
-    short_hits = rc.retrieve("在吗", CTX)
+    short_hits = rc.retrieve("菜棚", CTX)
     check("≤3 字短查询走分数序回退", len(short_hits) > 0, [(h["text"]) for h in short_hits])
     junk = rc.retrieve("量子力", CTX)
     note("≤3 字域外查询会回退成不相关结果（如「量子力」→ %d 条），是既定回退的副作用"
@@ -533,7 +536,7 @@ def test_panel():
     before = d["hits"]
     t = panel.touch(st, nid)
     check("touch 命中 +1", t["hits"] == before + 1, "%s -> %s" % (before, t["hits"]))
-    rc.retrieve("菜棚", CTX)
+    rc.retrieve("核心级记忆", CTX)
     rec = panel.recent_recalls(st, 3)
     check("recent_recalls 有记录", rec and rec[0]["query"])
     full_b = panel.brain(st, cfg, idx)
