@@ -139,7 +139,7 @@ def import_all(P, root, cap=2000, dry_run=False):
         chat = it["chat"]
         is_group = chat.startswith("group:")
         num = chat.split(":", 1)[1]
-        enc.write(
+        res = enc.write(
             it["text"],
             source="owner" if it["owner"] else "other",
             audience="group" if is_group else "private",
@@ -147,6 +147,9 @@ def import_all(P, root, cap=2000, dry_run=False):
             ts=it["ts"],
             evidence={"message_id": it["message_id"], "speaker": it["speaker"], "excerpt": it["text"]},
         )
+        if res.get("rejected"):
+            skipped += 1
+            continue
         existing.add(norm)
         added += 1
     return {"collected": len(items), "added": added, "skipped": skipped, "dry_run": dry_run}

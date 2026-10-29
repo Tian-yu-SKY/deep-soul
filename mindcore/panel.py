@@ -143,6 +143,11 @@ def brain(store, cfg, index=None, as_of=None, limit=1600):
         "important_level": sum(1 for n in all_n if (n["level"] or "normal") == "important"),
         "loops": 0,
         "mode": index.mode() if index is not None else "?",
+        "safe_mode": store.safe_mode(),
+        "injections_today": dict(store.conn.execute(
+            "SELECT COUNT(*) n, COALESCE(SUM(chars),0) chars, COALESCE(SUM(hits),0) hits "
+            "FROM injection_log WHERE ts>=?", (time.time() - 86400,)).fetchone()),
+        "initiative": dict(store.get_meta("initiative_state") or {}),
         "db": store.path,
     }
     last_self = store.conn.execute("SELECT MAX(at) FROM self_revisions").fetchone()[0]

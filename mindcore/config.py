@@ -28,6 +28,16 @@ class Config:
     recall_dedupe_sim: float = 0.85  # 回想阶段近重复阈值（写入合并用 dedupe_sim）
     share_private: bool = True       # 私聊记忆在群里也能想起（只给主人，标明“别报细节”）
     share_private_max: int = 1       # 群聊里一次最多带几条私聊记忆
+    # ---- v4.4 接入与治理 ----
+    prefetch_max_chars: int = 900    # 每轮注入硬预算（字符）
+    max_content_chars: int = 500     # 单条记忆最大长度
+    quiet_start: int = 23            # 安静时段开始（含）
+    quiet_end: int = 8               # 安静时段结束（不含）
+    proactive_min_minutes: int = 45  # 两次主动最短间隔
+    proactive_hourly: int = 1
+    proactive_daily: int = 4
+    proactive_backoff_start: int = 120
+    proactive_backoff_max: int = 1440
     promote_important_hits: int = 4
     promote_core_hits: int = 12
     jitter: float = 0.10

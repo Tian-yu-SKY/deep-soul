@@ -1,8 +1,12 @@
+import re
 """编码层：惊讶度、双通道权重、归因闸门、物理锚与证据链（§3.2, §3.9, §3.11）。"""
 import hashlib
 import time
 
 from . import text as T
+
+_INSTRUCTION_RE = re.compile(r"(忽略(以上|之前|前面)|无视(以上|之前)|你现在是|从现在起你是|把数据库删|删除所有记忆|system prompt|开发者模式|ignore (all|previous) instructions)", re.I)
+_SENSITIVE_RE = re.compile(r"(密码|验证码|身份证|银行卡|信用卡|CVV|api[_-]?key|access[_-]?token)", re.I)
 
 
 class Encoder:
@@ -51,6 +55,17 @@ class Encoder:
     def write(self, txt, source="other", audience="private", region=None,
               kind="fact", valence=0.0, arousal=0.0, anchor=None, evidence=None,
               explicit_conflict=False, ts=None, chat_id=""):
+        txt = (txt or "").strip()
+        if self.store.safe_mode():
+            return {"id": None, "rejected": "safe_mode", "status": "rejected", "text": txt}
+        if len(txt) > int(getattr(self.cfg, "max_content_chars", 500)):
+            return {"id": None, "rejected": "too_long", "status": "rejected", "text": txt}
+        if _INSTRUCTION_RE.search(txt):
+            return {"id": None, "rejected": "instruction", "status": "rejected", "text": txt}
+        if _SENSITIVE_RE.search(txt):
+            return {"id": None, "rejected": "sensitive", "status": "rejected", "text": txt}
+        if not txt:
+            return {"id": None, "rejected": "empty", "status": "rejected", "text": txt}
         ts = ts or time.time()
         region = region or T.region_of(txt)
         s = self.surprise(txt, region)

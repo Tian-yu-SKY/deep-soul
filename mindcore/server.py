@@ -19,6 +19,7 @@ from .consolidate import Consolidator
 from .metrics import Metrics
 from .self import SelfModel
 from . import panel as P
+from .gate import InitiativeGate
 
 
 class Service:
@@ -35,6 +36,7 @@ class Service:
         self.cons = Consolidator(self.store, cfg, self.encoder, self.index, self.emb)
         self.metrics = Metrics(self.store, cfg, self.index, self.emb)
         self.selfmodel = SelfModel(self.store, cfg, self.emb)
+        self.gate = InitiativeGate(self.store, cfg)
         self._maybe_import_history()
 
     def _maybe_import_history(self):
@@ -104,6 +106,32 @@ class Service:
             return P.detail(self.store, int(a["id"]))
         if op == "panel_touch":
             return P.touch(self.store, int(a["id"]))
+        if op == "initiative_check":
+            return self.gate.check()
+        if op == "initiative_sent":
+            return self.gate.mark_sent()
+        if op == "initiative_replied":
+            return self.gate.mark_replied()
+        if op == "initiative_status":
+            return self.gate.status()
+        if op == "safe_mode_get":
+            return {"safe_mode": self.store.safe_mode()}
+        if op == "safe_mode_set":
+            self.store.set_meta("safe_mode", bool(a.get("on")))
+            return {"safe_mode": self.store.safe_mode()}
+        if op == "log_injection":
+            with self.store.tx() as c:
+                c.execute("INSERT INTO injection_log(ts,session,kind,chars,hits,dropped,note) VALUES(?,?,?,?,?,?,?)",
+                          (time.time(), a.get("session"), a.get("kind"), int(a.get("chars") or 0),
+                           int(a.get("hits") or 0), int(a.get("dropped") or 0), a.get("note")))
+            return {"ok": True}
+        if op == "injection_stats":
+            row = self.store.conn.execute(
+                "SELECT COUNT(*) n, COALESCE(SUM(chars),0) chars, COALESCE(SUM(hits),0) hits FROM injection_log WHERE ts>=?",
+                (time.time() - 86400,)).fetchone()
+            return {"today": dict(row) if row else {}}
+        if op == "flags":
+            return {"safe_mode": self.store.safe_mode()}
         if op == "panel_recalls":
             return P.recent_recalls(self.store, int(a.get("limit", 10)))
         if op == "self_list":

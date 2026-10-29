@@ -139,6 +139,12 @@ CREATE TABLE IF NOT EXISTS review_queue(
   id INTEGER PRIMARY KEY, kind TEXT NOT NULL, payload TEXT NOT NULL, created_at REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS injection_log(
+  id INTEGER PRIMARY KEY, ts REAL NOT NULL, session TEXT,
+  kind TEXT, chars INTEGER, hits INTEGER, dropped INTEGER, note TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_inj_ts ON injection_log(ts);
+
 CREATE TABLE IF NOT EXISTS events(
   id INTEGER PRIMARY KEY, ts REAL NOT NULL, kind TEXT NOT NULL,
   initiator TEXT, evidence INTEGER, note TEXT
@@ -206,6 +212,9 @@ class Store:
     def get_meta(self, key, default=None):
         row = self.conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
         return json.loads(row["value"]) if row else default
+
+    def safe_mode(self):
+        return bool(self.get_meta("safe_mode") or False)
 
     def set_meta(self, key, value):
         self.conn.execute(

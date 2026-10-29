@@ -433,6 +433,20 @@ export function apply(ctx) {
           const data = await sidecar.request('panel_touch', { id }, 8000)
           send(res, 200, { ok: true, data })
         })
+        route('/deep-soul/mode', async (req, res) => {
+          if (req.method === 'GET') {
+            const f = await sidecar.request('flags', {}, 4000)
+            return send(res, 200, { ok: true, data: f })
+          }
+          if (req.method !== 'POST') return send(res, 405, { ok: false, error: 'GET or POST' })
+          const body = await readBody(req)
+          const data = await sidecar.request('safe_mode_set', { on: !!body.on }, 4000)
+          send(res, 200, { ok: true, data })
+        })
+        route('/deep-soul/initiative', async (req, res) => {
+          const data = await sidecar.request('initiative_status', {}, 4000)
+          send(res, 200, { ok: true, data })
+        })
         route('/deep-soul/recalls', async (req, res) => {
           const u = new URL(req.url, 'http://x')
           const limit = Math.min(30, Math.max(1, Number(u.searchParams.get('limit')) || 10))
@@ -494,6 +508,26 @@ export function apply(ctx) {
     const AUTO_SEEN_TTL = 2 * 3600 * 1000
     const autoGroup = new Map()
     let autoGlobal = { day: '', count: 0 }
+    const AUTO_STATE_PATH = join(DATA_DIR, 'auto-memory-state.json')
+    const saveAutoState = () => {
+      try {
+        mkdirSync(DATA_DIR, { recursive: true })
+        const sids = {}
+        for (const [k, v] of autoGroup) sids[k] = { count: v.count, lastAt: v.lastAt }
+        const tmp = AUTO_STATE_PATH + '.' + process.pid + '.tmp'
+        writeFileSync(tmp, JSON.stringify({ day: autoGlobal.day, total: autoGlobal.count, sids }))
+        renameSync(tmp, AUTO_STATE_PATH)
+      } catch (e) { /* 落盘失败不影响聊天 */ }
+    }
+    try {
+      const saved = JSON.parse(readFileSync(AUTO_STATE_PATH, 'utf8'))
+      if (saved && saved.day === new Date().toDateString()) {
+        autoGlobal = { day: saved.day, count: Number(saved.total) || 0 }
+        for (const [k, v] of Object.entries(saved.sids || {})) {
+          autoGroup.set(k, { day: saved.day, count: Number(v.count) || 0, lastAt: Number(v.lastAt) || 0, seen: new Map() })
+        }
+      }
+    } catch (e) { /* 第一次运行没有状态文件 */ }
     const isFactish = (t) => {
       if (t.length < 8 || t.length > 200) return false
       if (/^[\/!.#@]/.test(t)) return false
@@ -542,13 +576,14 @@ export function apply(ctx) {
         if (st.seen.size > 800) {
           for (const [k, v] of st.seen) if (now - v > AUTO_SEEN_TTL) st.seen.delete(k)
         }
+        saveAutoState()
       } catch (e) { log('auto-remember failed:', e && e.message) }
     }
 
     const mountAgent = (agent) => {
       const sid = String(agent && (agent.id || agent.sessionId) || '')
       if (!sid || prefetch.has(sid)) return
-      const state = { text: '', at: 0 }
+      const state = { text: '', at: 0, duePending: false }
       prefetch.set(sid, state)
       try {
         agent.ctx.on('agent/inbox/inserted', (payload) => {
@@ -558,26 +593,62 @@ export function apply(ctx) {
             audienceByAgent.set(sid, kind[1])
             chatByAgent.set(sid, kind[2])
           }
-          // 以前拿 prompt 开头当查询，拿到的是运行上下文；现在优先用消息快照里的最后一句
           const snap = extractSnapshot(full)
           const msgs = snap && Array.isArray(snap.messages) ? snap.messages : []
           const lastText = lastSpeakerText(snap)
+          // 有人回话 → 把上一次“到期提醒”算作有回应
+          if (state.duePending) {
+            state.duePending = false
+            sidecar.request('initiative_replied', {}, 2000).catch(() => {})
+          }
           if (kind && kind[1] === 'group' && msgs.length) autoRememberGroup(sid, msgs, kind[2])
           const q = (lastText || full.slice(0, 300)).trim()
           if (!q) return
-          sidecar.request('recall', { query: q, k: 3, ctx: { principal: 'owner', audience: audienceByAgent.get(sid) === 'group' ? 'group' : 'private', chat: chatByAgent.get(sid) || '' } }, 4000)
-            .then((hits) => {
-              if (!Array.isArray(hits) || !hits.length) return
-              // [v4.2] 带相对时间：像回忆，不像检索结果
-              state.text = '【这次可能想得起来的】\n' + hits.map((h) => {
-                const d = h.created_at ? Math.floor((Date.now() / 1000 - h.created_at) / 86400) : 0
-                const tag = d >= 1 ? (d === 1 ? '昨天 · ' : d + ' 天前 · ') : ''
-                return '- ' + (h.private ? '（私聊·别报细节）' : '') + tag + h.text
-              }).join('\n')
-              state.at = Date.now()
-              log('prefetch hit', sid, hits.length)
-            })
-            .catch(() => {})
+          const ctx0 = { principal: 'owner', audience: audienceByAgent.get(sid) === 'group' ? 'group' : 'private', chat: chatByAgent.get(sid) || '' }
+          const dueItems = activeLoops().filter((i) => i.due && i.due <= Date.now()).slice(0, 2)
+          Promise.all([
+            sidecar.request('flags', {}, 2000).catch(() => ({})),
+            dueItems.length ? sidecar.request('initiative_check', {}, 2000).catch(() => ({ allowed: false })) : Promise.resolve({ allowed: false }),
+          ]).then(([flags, gate]) => {
+            if (flags && flags.safe_mode) { state.text = ''; return null }
+            return sidecar.request('recall', { query: q, k: 3, ctx: ctx0 }, 4000)
+              .then((hits) => ({ hits: Array.isArray(hits) ? hits : [], gate, dueItems }))
+              .catch(() => ({ hits: [], gate, dueItems }))
+          }).then((r) => {
+            if (!r) return
+            const budget = 900
+            const header = '【这次可能想得起来的】'
+            let used = header.length
+            const lines = []
+            for (const h of r.hits) {
+              const d = h.created_at ? Math.floor((Date.now() / 1000 - h.created_at) / 86400) : 0
+              const tag = d >= 1 ? (d === 1 ? '昨天 · ' : d + ' 天前 · ') : ''
+              const line = '- ' + (h.private ? '（私聊·别报细节）' : '') + tag + h.text
+              if (used + line.length > budget) break
+              used += line.length
+              lines.push(line)
+            }
+            let text = lines.length ? header + '\n' + lines.join('\n') : ''
+            let proactive = false
+            if (r.dueItems && r.dueItems.length && r.gate && r.gate.allowed) {
+              const dl = '【到期的约定】\n' + r.dueItems.map((i) => '- ' + i.text).join('\n')
+              if (used + dl.length <= budget) {
+                text = (text ? text + '\n' : '') + dl
+                proactive = true
+              }
+            }
+            state.text = text
+            state.at = Date.now()
+            if (proactive) {
+              state.duePending = true
+              sidecar.request('initiative_sent', {}, 2000).catch(() => {})
+            }
+            sidecar.request('log_injection', {
+              session: sid, kind: 'prefetch', chars: text.length,
+              hits: lines.length, dropped: r.hits.length - lines.length, note: q.slice(0, 40),
+            }, 2000).catch(() => {})
+            if (lines.length) log('prefetch hit', sid, lines.length)
+          }).catch(() => {})
         })
       } catch (e) { log('prefetch listen failed:', e && e.message) }
       log('prefetch mounted', sid)

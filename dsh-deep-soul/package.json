@@ -1,6 +1,6 @@
 {
   "name": "dsh-deep-soul",
-  "version": "4.3.4",
+  "version": "4.4.0",
   "description": "Deep-Soul v4.3 — 长期人格记忆内核：双通道权重、分舱检索、回声/覆盖度重排、棱角保护与和解、自我陈述与自传、命中晋升，外加时间感、未完成事项与侧边栏识海。",
   "license": "MIT",
   "type": "module",
